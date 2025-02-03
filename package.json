@@ -1,0 +1,45 @@
+{
+  "name": "buddysworldapp",
+  "version": "1.0.0",
+  "description": "Buddycoin Staking Dapp: Stake, Unstake, and Earn Rewards seamlessly on Base Network.",
+  "main": "index.js",
+  "dependencies": {
+    "@coinbase/onchainkit": "^0.36.9",
+    "@shadcn/ui": "^0.0.4",
+    "@tailwindcss/typography": "^0.5.16",
+    "@tanstack/react-query": "^5.65.1",
+    "ethers": "^6.13.5",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "viem": "^2.22.17",
+    "wagmi": "^2.14.9"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.19.0",
+    "@tailwindcss/forms": "^0.5.3",
+    "@tailwindcss/postcss": "^4.0.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "cssnano": "^6.1.2",
+    "eslint": "^8.57.1",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-react": "^7.32.2",
+    "eslint-plugin-vue": "^9.32.0",
+    "globals": "^15.14.0",
+    "postcss": "^8.5.1",
+    "postcss-cli": "^11.0.0",
+    "prettier": "^3.4.2",
+    "tailwindcss": "^4.0.1",
+    "vite": "^4.5.9"
+  },
+  "scripts": {
+    "build:css": "postcss src/styles/globals.css -o dist/styles.css",
+    "lint": "eslint 'src/**/*.{js,jsx}'",
+    "format": "prettier --write 'src/**/*.{js,jsx,css,json}'",
+    "dev": "vite",
+    "build": "vite build",
+    "start": "vite preview"
+  },
+  "author": "BuddyBoss",
+  "license": "MIT"
+}
