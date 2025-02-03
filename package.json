@@ -37,7 +37,6 @@
     "lint": "eslint 'src/**/*.{js,jsx}'",
     "format": "prettier --write 'src/**/*.{js,jsx,css,json}'",
     "dev": "vite",
-    "vercel-build": "vite build",
     "build": "vite build",
     "start": "vite preview"
   },
