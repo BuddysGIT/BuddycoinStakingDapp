@@ -2,8 +2,21 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
+import { ConnectButton, getDefaultConfig } from "@rainbow-me/rainbowkit";
+import { WagmiConfig } from "wagmi";
+import { base } from "wagmi/chains";
 import { ethers } from "ethers";
 import "../styles/globals.css";
+import { Buffer } from "buffer";
+
+window.Buffer = Buffer;
+
+const wagmiConfig = getDefaultConfig({
+  appName: "Buddysworld",
+  projectId: "d982685293fdd3ec6e6fe9f6e240538b",
+  chains: [base],
+  ssr: false,
+});
 
 const stakingContractAddress = "0x62fD47E335Fa5Ff754FE0509329152bde5106C16";
 const buddyCoinContractAddress = "0x8f62131c1b43834155A7FE1E1002F67F6dd464Df";
@@ -65,87 +78,38 @@ export default function StakingDapp() {
   const { disconnect } = useDisconnect();
   const [stakingContract, setStakingContract] = useState(null);
   const [buddyCoinContract, setBuddyCoinContract] = useState(null);
-  const [amountToStake, setAmountToStake] = useState('');
+  const [amountToStake, setAmountToStake] = useState("");
   const [stakingDurations, setStakingDurations] = useState([30, 90, 120]);
   const [stakingRewards, setStakingRewards] = useState([7, 10, 15]);
   const [stakingPenalties, setStakingPenalties] = useState([30, 30, 30]);
   const [stakes, setStakes] = useState([]);
   const [pendingRewards, setPendingRewards] = useState("0");
 
-  // Function to update pending rewards using BigInt
-  const updatePendingRewards = async () => {
-    if (!stakingContract) {
-      console.error("Staking contract not initialized");
-      return;
-    }
-
-    if (!stakes || stakes.length === 0) {
-      console.warn("No stakes found for this user");
-      setPendingRewards("0");
-      return;
-    }
-
-    try {
-      let totalRewards = 0n;
-
-      for (let i = 0; i < stakes.length; i++) {
-        const reward = await stakingContract.calculateReward(address, i);
-        totalRewards += reward; // reward est déjà un BigInt
-      }
-
-      setPendingRewards(ethers.formatEther(totalRewards));
-    } catch (error) {
-      console.error("Error updating pending rewards:", error);
-    }
-  };
-
   useEffect(() => {
+    let isMounted = true;
+    if (!isConnected || !address) return;
+
     const setupContracts = async () => {
       try {
-        if (!window.ethereum) {
-          console.error("Ethereum wallet not detected");
-          return;
-        }
-
-        if (!isConnected || !address) {
-          console.error("Wallet not connected or address missing");
-          return;
-        }
-
+        if (!window.ethereum) return;
         const provider = new ethers.BrowserProvider(window.ethereum);
         const signer = await provider.getSigner();
+        if (!isMounted) return;
 
-        // Initialize contracts
         const stakingInstance = new ethers.Contract(stakingContractAddress, stakingABI, signer);
         const buddyCoinInstance = new ethers.Contract(buddyCoinContractAddress, buddyCoinABI, signer);
 
         setStakingContract(stakingInstance);
         setBuddyCoinContract(buddyCoinInstance);
-
-        console.log("Contracts initialized successfully");
-
-        // Update stakes and rewards
-        const userStakes = await stakingInstance.getUserStakes(address);
-        const formattedStakes = userStakes.map((stake) => ({
-          amount: ethers.formatEther(stake.amount),
-          startTime: new Date(Number(stake.startTime) * 1000),
-          // Convert stake.tier (BigInt) en nombre pour accéder aux tableaux
-          unlockTime: new Date((Number(stake.startTime) + stakingDurations[Number(stake.tier)] * 86400) * 1000),
-          penalty: stakingPenalties[Number(stake.tier)],
-          tier: Number(stake.tier),
-        }));
-        setStakes(formattedStakes);
-
-        // Update pending rewards
-        await updatePendingRewards();
       } catch (error) {
-        console.error("Error during contract setup:", error);
+        console.error("Error initializing contracts:", error);
       }
     };
 
-    if (isConnected) {
-      setupContracts();
-    }
+    setupContracts();
+    return () => {
+      isMounted = false;
+    };
   }, [isConnected, address]);
 
   const stakeTokens = async (tier) => {
@@ -153,7 +117,6 @@ export default function StakingDapp() {
       alert("Staking contract or token contract not initialized");
       return;
     }
-
     try {
       const amount = ethers.parseEther(amountToStake);
       const approveTx = await buddyCoinContract.approve(stakingContractAddress, amount);
@@ -161,36 +124,9 @@ export default function StakingDapp() {
       const stakeTx = await stakingContract.stake(amount, tier);
       await stakeTx.wait();
       alert("Tokens staked successfully!");
-
-      // Update stakes and rewards after staking
-      const userStakes = await stakingContract.getUserStakes(address);
-      const formattedStakes = userStakes.map((stake) => ({
-        amount: ethers.formatEther(stake.amount),
-        startTime: new Date(Number(stake.startTime) * 1000),
-        unlockTime: new Date((Number(stake.startTime) + stakingDurations[Number(stake.tier)] * 86400) * 1000),
-        penalty: stakingPenalties[Number(stake.tier)],
-        tier: Number(stake.tier),
-      }));
-      setStakes(formattedStakes);
-      await updatePendingRewards();
+      updatePendingRewards(); // Update after successful staking
     } catch (error) {
       console.error("Error staking tokens:", error);
-    }
-  };
-
-  const unstakeTokens = async (index) => {
-    if (!stakingContract) {
-      alert("Staking contract not initialized");
-      return;
-    }
-
-    try {
-      const unstakeTx = await stakingContract.withdraw(index);
-      await unstakeTx.wait();
-      alert("Tokens unstaked successfully!");
-      await updatePendingRewards();
-    } catch (error) {
-      console.error("Error unstaking tokens:", error);
     }
   };
 
@@ -199,138 +135,217 @@ export default function StakingDapp() {
       alert("Staking contract not initialized");
       return;
     }
-
     try {
       const claimTx = await stakingContract.claimAllRewards();
       await claimTx.wait();
       alert("Rewards claimed successfully!");
-      setPendingRewards("0");
+      updatePendingRewards(); // Update after claiming rewards
     } catch (error) {
       console.error("Error claiming rewards:", error);
     }
   };
 
-  return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white p-5">
-      <h1 className="text-4xl md:text-5xl font-extrabold mb-8 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-500 to-red-500 animate-wiggle">
-        BUDDYCOIN STAKING DAPP
-      </h1>
-      {!isConnected ? (
-        <div className="flex flex-col items-center">
-          <Button 
-            onClick={() => connect({ connector: connectors[0] })} 
-            className="bg-blue-500 text-white px-4 py-2 rounded-lg"
-          >
-            Connect Wallet
-          </Button>
-        </div>
-      ) : (
-        <div className="text-lg flex flex-col items-center">
-          <p className="mb-2">Connected: {address}</p>
-          <Button onClick={disconnect} className="bg-red-500 text-white px-4 py-2 rounded-lg">
-            Disconnect
-          </Button>
-        </div>
-      )}
+  const updatePendingRewards = async () => {
+    if (!stakingContract || !address || stakes.length === 0) {
+      console.warn("⚠️ Staking contract or stakes are not defined.");
+      return;
+    }
   
-      <Card className="w-full max-w-2xl mt-5 p-5 bg-gray-800">
-        <CardContent>
-          <h2 className="text-xl font-bold mb-4">$BUDYS Staking Info</h2>
-          <table className="table-auto w-full text-center text-white mb-4">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Lock</th>
-                <th>APR</th>
-                <th>Penalty</th>
-                <th>Amount</th>
-                <th>Stake</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stakingDurations.map((duration, index) => (
-                <tr key={index}>
-                  <td>{index + 1}</td>
-                  <td>{duration} days</td>
-                  <td>{stakingRewards[index]}%</td>
-                  <td>{stakingPenalties[index]}%</td>
-                  <td>
-                    <input
-                      type="text"
-                      placeholder="Enter amount"
-                      value={amountToStake}
-                      onChange={(e) => setAmountToStake(e.target.value)}
-                      className="w-full p-2 rounded-lg text-black"
-                    />
-                  </td>
-                  <td>
-                    <Button onClick={() => stakeTokens(index)} className="bg-green-500 text-white">
-                      Stake
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          
-          <h2 className="text-xl font-bold mb-4">Pending Rewards</h2>
-          <div className="mx-auto w-full max-w-md flex flex-col items-center justify-center mb-6 p-6 bg-gray-700 rounded-lg shadow-lg">
-            <span className="text-3xl font-bold mb-2">
-              {Number(pendingRewards).toFixed(2)} $BUDYS
-            </span>
-            <Button
-              onClick={claimRewards}
-              className="bg-yellow-500 text-black font-bold px-6 py-2 rounded"
-            >
-              Claim Rewards
-            </Button>
-          </div>
-            
-          <h2 className="text-xl font-bold mb-4">My Stakes</h2>
-          <table className="table-auto w-full text-center text-white mb-4">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>APR%</th>
-                <th>Amount</th>
-                <th>Stake date</th>
-                <th>Unlock date</th>
-                <th>Penalty</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stakes.map((stake, index) => {
-                // Vérifie si la période de staking est terminée
-                const isUnlocked = new Date() >= stake.unlockTime;
-                return (
-                  <tr key={index}>
-                    <td>{index + 1}</td>
-                    <td>{stakingRewards[stake.tier]}%</td>
-                    <td>{stake.amount}</td>
-                    <td>{stake.startTime.toLocaleDateString()}</td>
-                    <td>{stake.unlockTime.toLocaleDateString()}</td>
-                    <td>{stake.penalty}%</td>
-                    <td>
-                      <Button
-                        onClick={() => unstakeTokens(index)}
-                        disabled={!isUnlocked}
-                        className={`px-4 py-2 rounded-lg ${
-                          isUnlocked
-                            ? "bg-red-500 text-white"
-                            : "bg-gray-500 text-gray-200 cursor-not-allowed"
-                        }`}
-                      >
-                        Unstake
-                      </Button>
-                    </td>
+    try {
+      let totalRewards = 0n;
+  
+      for (let i = 0; i < stakes.length; i++) {
+        const reward = await stakingContract.calculateReward(address, i);
+        console.log(`🔎 Reward for stake ${i}:`, reward?.toString());
+  
+        totalRewards += BigInt(reward);
+      }
+  
+      setTimeout(() => {
+        if (stakingContract && totalRewards > 0n) {
+          setPendingRewards(ethers.formatEther(totalRewards.toString()));
+        }
+      }, 0);
+  
+    } catch (error) {
+      console.error("❌ Error updating pending rewards:", error);
+    }
+  };
+  
+
+
+  const fetchUserStakes = async () => {
+    if (!stakingContract || !address) return;
+  
+    try {
+      const userStakes = await stakingContract.getUserStakes(address);
+      console.log("✅ Stakes récupérées du contrat:", userStakes);
+  
+      if (!userStakes || userStakes.length === 0) {
+        console.warn("⚠️ Aucun stake trouvé pour cet utilisateur");
+        return;
+      }
+  
+      const formattedStakes = userStakes.map((stake) => ({
+        amount: ethers.formatEther(stake.amount),
+        startTime: new Date(Number(stake.startTime) * 1000),
+        unlockTime: new Date((Number(stake.startTime) + 30 * 86400) * 1000),
+        penalty: 10,
+        tier: Number(stake.tier),
+      }));
+  
+      // 🚀 Différer la mise à jour pour éviter l'erreur React
+      setTimeout(() => {
+        if (stakingContract && formattedStakes.length > 0) {
+          setStakes(formattedStakes);
+        }
+      }, 0);
+  
+    } catch (error) {
+      console.error("❌ Erreur lors de la récupération des stakes:", error);
+    }
+  };
+  
+  
+
+  useEffect(() => {
+    if (stakingContract && address) {
+      console.log("🔄 Fetching user stakes for:", address);
+      
+      setTimeout(() => {
+        if (stakingContract) {
+          fetchUserStakes();
+        }
+      }, 0); // 🚀 Différer l'exécution pour éviter les conflits
+    }
+  }, [stakingContract, address]);
+  
+  useEffect(() => {
+    if (stakes.length === 0) {
+      console.warn("⚠️ Stakes are still empty, waiting for update...");
+    } else {
+      console.log("✅ Stakes are now available, updating pending rewards...");
+      setTimeout(() => updatePendingRewards(), 0);
+    }
+  }, [stakes]); // Exécute `updatePendingRewards()` une fois `stakes` mis à jour
+    
+  const unstakeTokens = async (index) => {
+    if (!stakingContract) {
+      alert("Staking contract not initialized");
+      return;
+    }
+    try {
+      const unstakeTx = await stakingContract.withdraw(index);
+      await unstakeTx.wait();
+      alert("Tokens unstaked successfully!");
+      updatePendingRewards(); // Update after unstaking
+    } catch (error) {
+      console.error("Error unstaking tokens:", error);
+    }
+  };
+
+  return (
+    <WagmiConfig config={wagmiConfig}>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-dark-gray to-gray-900 text-white p-3 sm:p-4 md:p-5 w-full max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg xl:max-w-xl">
+        <h1 className="text-3xl sm:text-4xl md:text-5xl font-extrabold mb-6 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-500 to-red-500 animate-wiggle text-center">
+          BUDDYCOIN STAKING
+        </h1>
+        <div className="mb-4 sm:mb-6 w-full flex justify-center">
+          <ConnectButton className="bg-soft-blue hover:bg-hover-blue text-white font-bold py-2 px-4 rounded-lg shadow-neon w-full max-w-xs sm:max-w-sm md:max-w-md" />
+        </div>
+        <Card className="w-full max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg xl:max-w-2xl mt-5 p-4 sm:p-5 bg-gray-800 rounded-2xl shadow-lg border border-gray-700">
+          <CardContent>
+            <h2 className="text-lg sm:text-xl font-bold mb-4 text-center">Stake your $BUDYS</h2>
+            <div className="overflow-x-auto w-full">
+              <table className="table-auto w-full text-center text-white mb-4 border border-gray-600 rounded-lg shadow-md">
+                <thead className="bg-gray-800">
+                  <tr>
+                    <th className="p-2">#</th>
+                    <th className="p-2">Lock</th>
+                    <th className="p-2">APR</th>
+                    <th className="p-2">Penalty</th>
+                    <th className="p-2 hidden sm:table-cell">Amount</th>
+                    <th className="p-2">Stake</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
-    </div>
+                </thead>
+                <tbody>
+                  {stakingDurations.map((duration, index) => (
+                    <tr key={index} className="bg-gray-800 hover:bg-gray-700 transition-all">
+                      <td className="p-2">{index + 1}</td>
+                      <td className="p-2">{duration} days</td>
+                      <td className="p-2 text-green-400">{stakingRewards[index]}%</td>
+                      <td className="p-2 text-red-400">{stakingPenalties[index]}%</td>
+                      <td className="p-2 hidden sm:table-cell">
+                        <input
+                          type="text"
+                          placeholder="Enter amount"
+                          value={amountToStake}
+                          onChange={(e) => setAmountToStake(e.target.value)}
+                          className="w-full p-2 rounded-lg text-black border border-gray-400 shadow-sm"
+                        />
+                      </td>
+                      <td className="p-2">
+                        <Button onClick={() => stakeTokens(index)} className="bg-green-500 hover:bg-green-700 text-white px-4 py-2 rounded-lg shadow-md">
+                          Stake
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <h2 className="text-lg sm:text-xl font-bold mt-6 text-center">Pending Rewards</h2>
+            <div className="mx-auto w-full max-w-xs sm:max-w-sm flex flex-col items-center justify-center mb-6 p-4 sm:p-6 bg-gray-700 rounded-lg shadow-xl border border-gray-600">
+              <span className="text-2xl sm:text-3xl font-bold mb-2 text-neon-green">
+                {Number(pendingRewards).toFixed(2)} $BUDYS
+              </span>
+              <Button
+                onClick={() => claimRewards()}
+                className="bg-yellow-500 hover:bg-yellow-600 text-black px-6 py-3 rounded-lg shadow-md"
+              >
+                Claim Rewards
+              </Button>
+            </div>
+
+            <h2 className="text-lg sm:text-xl font-bold mb-4 text-center">Dashboard</h2>
+            <div className="overflow-x-auto w-full">
+              <table className="table-auto w-full text-center text-white mb-4 border border-gray-600 rounded-lg shadow-md">
+                <thead className="bg-gray-800">
+                  <tr>
+                    <th className="p-2">#</th>
+                    <th className="p-2">APR%</th>
+                    <th className="p-2">Amount</th>
+                    <th className="p-2 hidden sm:table-cell">Stake Date</th>
+                    <th className="p-2 hidden sm:table-cell">Unlock Date</th>
+                    <th className="p-2">Penalty</th>
+                    <th className="p-2">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stakes.map((stake, index) => (
+                    <tr key={index} className="bg-gray-800 hover:bg-gray-700 transition-all">
+                      <td className="p-2">{index + 1}</td>
+                      <td className="p-2">{stakingRewards[stake.tier]}%</td>
+                      <td className="p-2">{stake.amount}</td>
+                      <td className="p-2 hidden sm:table-cell">{stake.startTime.toLocaleDateString()}</td>
+                      <td className="p-2 hidden sm:table-cell">{stake.unlockTime.toLocaleDateString()}</td>
+                      <td className="p-2">{stake.penalty}%</td>
+                      <td className="p-2">
+                        <Button onClick={() => unstakeTokens(index)} className="bg-red-500 hover:bg-red-700 text-white px-4 py-2 rounded-lg shadow-md">
+                          Unstake
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </WagmiConfig>
   );
+
 }
+
